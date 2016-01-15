@@ -1,0 +1,24 @@
+
+generierung von mnist daten:
+http://leon.bottou.org/projects/infimnist
+
+getestet habe ich das standard mnist dataset (60k training und 10k test)
+Geladen wird das ganze mit Flink und dann umgewandelt in breeze datentypen.
+(da kann man noch rumoptimieren, das sollte auch nicht schwer sein das verteilt zu machen, für den größeren Datensatz)
+
+one vs all training von den SVMs.
+Das braucht momentan so ca 2-3 GB ram und für 300 iterationen 90 sekunden (pro svm)
+Ergebnis:0.79% falsch klassifiziert (mit 20 stützvektoren)
+
+
+da kann man bestimmt noch was rumtweaken an den parametern und an der stützvektor selektion.
+
+Im verteilten fall macht flink einmal ein map, trainiert jeweils auf dem teildatensatz für N iterationen, fügt die ergebnisse zusammen. So wie ich das verstanden habe, hat man zu jedem trainingspunkt eine gewichtung..
+Hier sollte man warscheinlich nochmal resamplen und wieder verteilen auf die nodes, um ner
+ungünstigen anfangsverteilung entgegenzuwirken.
+
+
+
+Utils.scala - contains standard svm files (like in python file)
+UtilsDist.scala - contains methods for distributed training with flink and load methods for mnist
+Main.scala - main class
