@@ -72,7 +72,7 @@ object Utils {
 
   def generateXORData(N: Int = 80, noise: Double = 0.25) = {
 
-    assert(N%4 == 0,"please use multiple of 4 for number of random samples")
+    assert(N % 4 == 0,"please use multiple of 4 for number of random samples")
     val mu = DenseMatrix((-1.0,1.0), (1.0,1.0)).t
     val C = DenseMatrix.eye[Double](2) * noise
 
@@ -82,7 +82,7 @@ object Utils {
     val samples3 = MultivariateGaussian(mu(::, 1), C).sample(N / 4)
     val samples4 = MultivariateGaussian(-mu(::, 1), C).sample(N / 4)
 
-    // concat matrices TODO: this probably can be done smarter
+    // concat matrices TODO: this can probably be done smarter
     //X = sp.hstack((mvn(mu[:,0],C,N/4).T,mvn(-mu[:,0],C,N/4).T, mvn(mu[:,1],C,N/4).T,mvn(-mu[:,1],C,N/4).T))
 
     //should be N

@@ -1,6 +1,6 @@
 package Svm
 
-import breeze.linalg.{DenseMatrix, DenseVector}
+import breeze.linalg.{SliceVector, DenseMatrix, DenseVector, Vector}
 import breeze.numerics._
 
 import scala.util.Random
@@ -56,7 +56,7 @@ object KernelSVM {
       val randomIndex = Random.nextInt(N)
       val randomInstance = X(::, randomIndex)
       
-      val yhat = predictSVMKernel(randomInstance, X, W, sigma)
+      val yhat =  W.t * gaussianKernel(randomInstance, X, sigma)
       val discount = eta / (i + 1.0)
 
       val r = yhat * Y(::, randomIndex)
@@ -77,6 +77,7 @@ object KernelSVM {
 
     WeightsAndErrors(W, errors)
   }
+
 
   /**
    * def test_svm(X,Y,W,(k,(kparam))):
@@ -99,7 +100,7 @@ object KernelSVM {
     var error = 0.0
 
     while (index < N) {
-      val yhat = predictSVMKernel(X(::, index), X, W, sigma)
+      val yhat = W.t * gaussianKernel(X(::, index), X, sigma)
       val err = yhat * Y(::, index)
 
       assert(err.length == 1)

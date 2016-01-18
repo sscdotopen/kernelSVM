@@ -20,18 +20,20 @@ object Main extends App {
     val labeledData = Utils.shuffleData(Utils.generateXORData(1000, 0.25))
 
     val N = labeledData.X.cols
-    val W = DenseVector.rand[Double](N)
 
-    val testInterval = 100
+    DoublyStochasticKernelLearningEmpirical.fitSvmDsklEmp(labeledData.X, labeledData.Y(0, ::).t, labeledData.X, labeledData.Y(0, ::).t)
 
-    val result = KernelSVM.fitRandomPointCompleteKernel(W, labeledData.X, labeledData.Y, iterations = 2000, eta = 1.0,
-      C = 10.0, testInterval = testInterval)
+    //val testInterval = 100
 
-    assert(result.errors != null && result.weights != null, "check your privileges!")
+    //val result = EmpKernelSVM.fitEmp(W, labeledData.X, labeledData.Y, iterations = 2000, eta = 1.0,
+    //  C = 10.0, testInterval = testInterval)
+
+    //assert(result.errors != null && result.weights != null, "check your privileges!")
+
 
     //Utils.plotData(labeledData.X)
-    Utils.plotLine(result.errors, testInterval)
-    Plots.plotModel(labeledData.X, labeledData.Y, result.weights, sigma = 1.0)
+    //Utils.plotLine(result.errors, testInterval)
+    //Plots.plotModel(labeledData.X, labeledData.Y, result.weights, sigma = 1.0)
   }
 /*
   def train_mnist(): Unit ={
