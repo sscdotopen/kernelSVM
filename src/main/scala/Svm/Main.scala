@@ -21,7 +21,7 @@ object Main extends App {
 
     val N = labeledData.X.cols
 
-    DoublyStochasticKernelLearningEmpirical.fitSvmDsklEmp(labeledData.X, labeledData.Y(0, ::).t, labeledData.X, labeledData.Y(0, ::).t)
+    val W = DoublyStochasticKernelLearningEmpirical.fitSvmDsklEmp(labeledData.X, labeledData.Y(0, ::).t, labeledData.X, labeledData.Y(0, ::).t)
 
     //val testInterval = 100
 
@@ -33,7 +33,7 @@ object Main extends App {
 
     //Utils.plotData(labeledData.X)
     //Utils.plotLine(result.errors, testInterval)
-    //Plots.plotModel(labeledData.X, labeledData.Y, result.weights, sigma = 1.0)
+    Plots.plotModel(labeledData.X, labeledData.Y, W, sigma = 1.0)
   }
 /*
   def train_mnist(): Unit ={

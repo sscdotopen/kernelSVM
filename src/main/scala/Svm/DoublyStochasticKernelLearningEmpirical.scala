@@ -26,19 +26,22 @@ object DoublyStochasticKernelLearningEmpirical {
 
       assert(Wemp.length == Y.length)
 
-      //TODO Eemp.append(sp.mean(Ytest != sp.sign(predict_svm_emp(X,Xtest,Wemp,kernel))))
-      val predictions = predictSvmEmp(X, Xtest, Wemp)
-      println(predictions)
-      var incorrect = 0
-      for (n <- 0 until predictions.length) {
-        if (Ytest(n) * predictions(n) < 0) {
-          incorrect += 1
+      if (it % 20 == 0) {
+        //TODO Eemp.append(sp.mean(Ytest != sp.sign(predict_svm_emp(X,Xtest,Wemp,kernel))))
+        val predictions = predictSvmEmp(X, Xtest, Wemp)
+        println(predictions)
+        var incorrect = 0
+        for (n <- 0 until predictions.length) {
+          if (Ytest(n) * predictions(n) < 0) {
+            incorrect += 1
+          }
         }
+        println(s"Iteration ${it}, # incorrectly classified ${incorrect}")
       }
-      println(s"Iteration ${it} ${incorrect}")
       it += 1
     }
 
+    Wemp
   }
 
   //def predict_svm_emp(Xexpand,Xtarget,w,kernel):
