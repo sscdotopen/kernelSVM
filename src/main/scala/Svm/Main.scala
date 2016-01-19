@@ -19,9 +19,10 @@ object Main extends App {
 
     val labeledData = Utils.shuffleData(Utils.generateXORData(1000, 0.25))
 
-    val N = labeledData.X.cols
+    //val N = labeledData.X.cols
 
-    val W = DoublyStochasticKernelLearningEmpirical.fitSvmDsklEmp(labeledData.X, labeledData.Y(0, ::).t, labeledData.X, labeledData.Y(0, ::).t)
+    val W = DoublyStochasticKernelLearningEmpirical
+      .fitSvmDsklEmp(labeledData.X, labeledData.Y(0, ::).t, labeledData.X, labeledData.Y(0, ::).t)
 
     //val testInterval = 100
 

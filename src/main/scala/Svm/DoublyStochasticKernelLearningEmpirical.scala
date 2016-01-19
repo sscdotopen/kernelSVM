@@ -29,13 +29,13 @@ object DoublyStochasticKernelLearningEmpirical {
       if (it % 20 == 0) {
         //TODO Eemp.append(sp.mean(Ytest != sp.sign(predict_svm_emp(X,Xtest,Wemp,kernel))))
         val predictions = predictSvmEmp(X, Xtest, Wemp)
-        println(predictions)
         var incorrect = 0
         for (n <- 0 until predictions.length) {
           if (Ytest(n) * predictions(n) < 0) {
             incorrect += 1
           }
         }
+        println(Wemp)
         println(s"Iteration ${it}, # incorrectly classified ${incorrect}")
       }
       it += 1
@@ -63,6 +63,8 @@ object DoublyStochasticKernelLearningEmpirical {
     //G = compute_gradient(Y[rnpred],X[:,rnpred],X[:,rnexpand],W[rnexpand],kernel,C)
     val G = computeGradient(Y(rnPred), X(::, rnPred), X(::, rnexpand), W(rnexpand).asInstanceOf[Vector[Double]]/*, C*/)
 
+    //println(s"Updating ${rnexpand.mkString(",")}")
+    //println(s"Before ${W}")
     // W[rnexpand] -= eta * G
     var i = 0
     while (i < rnexpand.length) {
@@ -70,12 +72,14 @@ object DoublyStochasticKernelLearningEmpirical {
       i += 1
     }
 
+    //println(s"After ${W}")
+
     W
   }
 
   // def compute_gradient(y,Xpred,Xexpand,w,kernel,C):
-  def computeGradient(y: Vector[Double], Xpred: Matrix[Double], Xexpand: Matrix[Double],
-    w: Vector[Double]/*, C: Double*/): Vector[Double] = {
+  def computeGradient(y: Vector[Double], Xpred: Matrix[Double], Xexpand: Matrix[Double], w: Vector[Double]
+  /*, C: Double*/): Vector[Double] = {
 
     //K = kernel[0](Xpred,Xexpand,kernel[1])
     val K = gaussianKernel(Xpred.toDenseMatrix, Xexpand.toDenseMatrix, sigma = 1.0)
@@ -96,25 +100,20 @@ object DoublyStochasticKernelLearningEmpirical {
     }
 
     //G = C * w - (y * inmargin).dot(K)
-    /*C **/ w - (K * yTimesInMargin)
+    val yTimesInMarginDotK: DenseMatrix[Double] = (yTimesInMargin.asDenseMatrix * K).asInstanceOf[DenseMatrix[Double]]
+    /*C **/ w - yTimesInMarginDotK(0, ::).t
   }
 
 
-  /*
-  def GaussianKernel(X1, X2, sigma):
-     assert(X1.shape[0] == X2.shape[0])
-     K = cdist(X1.T, X2.T, 'euclidean')
-     K = sp.exp(-(K ** 2) / (2. * sigma ** 2))
-     return K
-  */
+  //def GaussianKernel(X1, X2, sigma):
   def gaussianKernel(X1: DenseMatrix[Double], X2: DenseMatrix[Double], sigma: Double): DenseMatrix[Double] = {
 
     var i = 0
     var j = 0
 
+    // K = cdist(X1.T, X2.T, 'euclidean')
     //TODO use matrix mult here or at least save half
     val distances = DenseMatrix.zeros[Double](X1.cols, X2.cols)
-
     while (i < X1.cols) {
       while (j < X2.cols) {
         val subtracted = X1(::, i) :- X2(::, j)
@@ -124,6 +123,7 @@ object DoublyStochasticKernelLearningEmpirical {
       i += 1
     }
 
+    //K = sp.exp(-(K ** 2) / (2. * sigma ** 2))
     exp(-(distances :* distances) / (2 * sigma * sigma))
   }
 
