@@ -1,12 +1,8 @@
 package Svm
 
 import breeze.linalg._
-import breeze.numerics.{ceil, sqrt, exp}
-import breeze.plot._
 import breeze.stats.distributions.MultivariateGaussian
 
-import scala.collection.mutable.ListBuffer
-import scala.util.Random
 import breeze.plot._
 
 object Utils {
