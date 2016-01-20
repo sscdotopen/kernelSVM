@@ -12,7 +12,7 @@ object DoublyStochasticKernelLearningEmpirical {
 
   // def fit_svm_dskl_emp(X,Y,Xtest,Ytest,its=100,eta=1.,C=.1,nPredSamples=10,nExpandSamples=10, kernel=(GaussianKernel,(1.))):
   def fitSvmDsklEmp(X: DenseMatrix[Double], Y: DenseVector[Double], Xtest: DenseMatrix[Double],
-    Ytest: DenseVector[Double], its: Int = 100, eta: Double = 1.0, C: Double = 1.0, nPredSamples: Int = 10,
+    Ytest: DenseVector[Double], its: Int = 200, eta: Double = 1.0, C: Double = 0.1, nPredSamples: Int = 10,
     nExpandSamples: Int = 10) = {
 
     // Wemp = sp.randn(len(Y))
@@ -31,12 +31,12 @@ object DoublyStochasticKernelLearningEmpirical {
         val predictions = predictSvmEmp(X, Xtest, Wemp)
         var incorrect = 0
         for (n <- 0 until predictions.length) {
-          if (Ytest(n) * predictions(n) < 0) {
+          if ((Ytest(n) * predictions(n)) < 0) {
             incorrect += 1
           }
         }
         println(Wemp)
-        println(s"Iteration ${it}, # incorrectly classified ${incorrect}")
+        println(s"Iteration ${it}, # incorrectly classified ${incorrect} / ${Xtest.cols}")
       }
       it += 1
     }
@@ -61,7 +61,7 @@ object DoublyStochasticKernelLearningEmpirical {
     val rnexpand = Array.fill[Int](nExpandSamples) { Random.nextInt(Y.length) }.toIndexedSeq
 
     //G = compute_gradient(Y[rnpred],X[:,rnpred],X[:,rnexpand],W[rnexpand],kernel,C)
-    val G = computeGradient(Y(rnPred), X(::, rnPred), X(::, rnexpand), W(rnexpand).asInstanceOf[Vector[Double]]/*, C*/)
+    val G = computeGradient(Y(rnPred), X(::, rnPred), X(::, rnexpand), W(rnexpand).asInstanceOf[Vector[Double]], C)
 
     //println(s"Updating ${rnexpand.mkString(",")}")
     //println(s"Before ${W}")
@@ -79,7 +79,7 @@ object DoublyStochasticKernelLearningEmpirical {
 
   // def compute_gradient(y,Xpred,Xexpand,w,kernel,C):
   def computeGradient(y: Vector[Double], Xpred: Matrix[Double], Xexpand: Matrix[Double], w: Vector[Double]
-  /*, C: Double*/): Vector[Double] = {
+  , C: Double): Vector[Double] = {
 
     //K = kernel[0](Xpred,Xexpand,kernel[1])
     val K = gaussianKernel(Xpred.toDenseMatrix, Xexpand.toDenseMatrix, sigma = 1.0)
@@ -101,7 +101,7 @@ object DoublyStochasticKernelLearningEmpirical {
 
     //G = C * w - (y * inmargin).dot(K)
     val yTimesInMarginDotK: DenseMatrix[Double] = (yTimesInMargin.asDenseMatrix * K).asInstanceOf[DenseMatrix[Double]]
-    /*C **/ w - yTimesInMarginDotK(0, ::).t
+    (w * C) - yTimesInMarginDotK(0, ::).t
   }
 
 
@@ -115,16 +115,16 @@ object DoublyStochasticKernelLearningEmpirical {
     //TODO use matrix mult here or at least save half
     val distances = DenseMatrix.zeros[Double](X1.cols, X2.cols)
     while (i < X1.cols) {
+
       while (j < X2.cols) {
-        val subtracted = X1(::, i) :- X2(::, j)
-        distances(i, j) = sqrt(subtracted.dot(subtracted))
+        val subtracted = X1(::, i) - X2(::, j)
+        distances(i, j) = exp(pow(sqrt(subtracted.dot(subtracted)),2.0) / (-2.0 * sigma * sigma))
         j += 1
       }
       i += 1
+      j = 0
     }
-
-    //K = sp.exp(-(K ** 2) / (2. * sigma ** 2))
-    exp(-(distances :* distances) / (2 * sigma * sigma))
+    distances
   }
 
 }

@@ -1,12 +1,7 @@
 package Svm
 
-import breeze.numerics.{abs, sqrt}
-import org.apache.commons.math3.linear.RealMatrix
 import breeze.linalg._
-
 import breeze.plot._
-
-import scala.collection.mutable.ListBuffer
 
 object Main extends App {
 
@@ -17,8 +12,10 @@ object Main extends App {
 
   def trainXOR(): Unit = {
 
-    val labeledData = Utils.shuffleData(Utils.generateXORData(1000, 0.25))
+    val labeledData = Utils.shuffleData(Utils.generateXORData(200, 0.2))
 
+//    val X = DenseMatrix((0.77537742, -0.79612119,  1.17561917, -0.97329424),(1.25689421, -1.29590826, -0.71026355,  0.46867152))
+//    val Y = DenseVector((-1.0, -1.0,  1.0,  1.0))
     //val N = labeledData.X.cols
 
     val W = DoublyStochasticKernelLearningEmpirical

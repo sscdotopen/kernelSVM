@@ -1,6 +1,6 @@
 package Svm
 
-import breeze.linalg.{SliceVector, DenseMatrix, DenseVector, Vector}
+import breeze.linalg.{DenseMatrix, DenseVector}
 import breeze.numerics._
 
 import scala.util.Random
@@ -137,6 +137,6 @@ object KernelSVM {
 
   def predictSVMKernel(x: DenseVector[Double], X: DenseMatrix[Double],
     W: DenseVector[Double], sigma: Double): Double = {
-    W.t * gaussianKernel(x, X, sigma)
+    gaussianKernel(x, X, sigma).t * W
   }
 }
