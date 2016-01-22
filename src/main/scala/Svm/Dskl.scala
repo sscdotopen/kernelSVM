@@ -1,14 +1,13 @@
 package Svm
 
+import Svm.distributed.DistUtils
 import breeze.numerics._
 import breeze.stats.distributions.Rand
-
-import scala.util.Random
 
 import breeze.linalg.{Matrix, Vector, DenseVector, DenseMatrix}
 
 
-object DoublyStochasticKernelLearningEmpirical {
+object Dskl {
 
   // def fit_svm_dskl_emp(X,Y,Xtest,Ytest,its=100,eta=1.,C=.1,nPredSamples=10,nExpandSamples=10, kernel=(GaussianKernel,(1.))):
   def fitSvmDsklEmp(X: DenseMatrix[Double], Y: DenseVector[Double], Xtest: DenseMatrix[Double],
@@ -55,31 +54,22 @@ object DoublyStochasticKernelLearningEmpirical {
     C: Double = 1.0, nPredSamples: Int = 10, nExpandSamples: Int = 10) = {
 
     //rnpred = sp.random.randint(low=0,high=X.shape[1],size=nPredSamples)
-    val rnPred = Array.fill[Int](nPredSamples) { Random.nextInt(Y.length) }.toIndexedSeq
+    val rnPred = DistUtils.sampleNoSeed(Y.length, nPredSamples)
 
     //rnexpand = sp.random.randint(low=0,high=X.shape[1],size=nExpandSamples)
-    val rnexpand = Array.fill[Int](nExpandSamples) { Random.nextInt(Y.length) }.toIndexedSeq
+    val rnexpand = DistUtils.sampleNoSeed(Y.length, nExpandSamples)
 
     //G = compute_gradient(Y[rnpred],X[:,rnpred],X[:,rnexpand],W[rnexpand],kernel,C)
-    val G = computeGradient(Y(rnPred), X(::, rnPred), X(::, rnexpand), W(rnexpand).asInstanceOf[Vector[Double]], C)
+    val G = gradient(Y(rnPred), X(::, rnPred), X(::, rnexpand), W(rnexpand).asInstanceOf[Vector[Double]], C)
 
-    //println(s"Updating ${rnexpand.mkString(",")}")
-    //println(s"Before ${W}")
-    // W[rnexpand] -= eta * G
-    var i = 0
-    while (i < rnexpand.length) {
-      W(rnexpand(i)) -= eta * G(i)
-      i += 1
-    }
-
-    //println(s"After ${W}")
+    W(rnexpand) -= eta * G
 
     W
   }
 
   // def compute_gradient(y,Xpred,Xexpand,w,kernel,C):
-  def computeGradient(y: Vector[Double], Xpred: Matrix[Double], Xexpand: Matrix[Double], w: Vector[Double]
-  , C: Double): Vector[Double] = {
+  def gradient(y: Vector[Double], Xpred: Matrix[Double], Xexpand: Matrix[Double], w: Vector[Double],
+      C: Double): Vector[Double] = {
 
     //K = kernel[0](Xpred,Xexpand,kernel[1])
     val K = gaussianKernel(Xpred.toDenseMatrix, Xexpand.toDenseMatrix, sigma = 1.0)

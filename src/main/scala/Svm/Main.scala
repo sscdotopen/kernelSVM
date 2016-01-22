@@ -18,7 +18,7 @@ object Main extends App {
 //    val Y = DenseVector((-1.0, -1.0,  1.0,  1.0))
     //val N = labeledData.X.cols
 
-    val W = DoublyStochasticKernelLearningEmpirical
+    val W = Dskl
       .fitSvmDsklEmp(labeledData.X, labeledData.Y(0, ::).t, labeledData.X, labeledData.Y(0, ::).t)
 
     //val testInterval = 100
