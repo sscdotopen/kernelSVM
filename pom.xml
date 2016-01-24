@@ -29,6 +29,13 @@ under the License.
   <name>Double random svm training</name>
   <!--<url>http://www.myorganization.org</url>-->
 
+  <repositories>
+    <repository>
+      <id>mvnrepository</id>
+      <name>mvnrepository</name>
+      <url>http://www.mvnrepository.com</url>
+    </repository>
+  </repositories>
   <!--<repositories>-->
     <!--<repository>-->
       <!--<id>apache.snapshots</id>-->
@@ -71,11 +78,11 @@ under the License.
       <version>1.6.0</version>
     </dependency>
 
-    <dependency>
+    <!--dependency>
       <groupId>org.knowm.xchart</groupId>
       <artifactId>xchart-parent</artifactId>
       <version>2.6.1</version>
-    </dependency>
+    </dependency-->
 
     <dependency>
       <groupId>org.knowm.xchart</groupId>
@@ -102,6 +109,46 @@ under the License.
     on a cluster. Change the value of Program-Class if your program entry point changes. -->
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>1.4</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <artifactSet>
+                <excludes>
+                  <exclude>org.apache.spark:*</exclude>
+                  <exclude>org.scala-lang:*</exclude>
+                  <exclude>com.typesafe.akka:*</exclude>
+                  <exclude>org.apache.hadoop:*</exclude>
+                  <exclude>org.glassfish.grizzly:*</exclude>
+                  <exclude>org.glassfish:*</exclude>
+                  <exclude>org.tachyonproject:*</exclude>
+                  <exclude>bouncycastle:*</exclude>
+                </excludes>
+              </artifactSet>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ComponentsXmlResourceTransformer"/>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <!-- We use the maven-shade plugin to create a fat jar that contains all dependencies
       except flink and it's transitive dependencies. The resulting fat-jar can be executed
       on a cluster. Change the value of Program-Class if your program entry point changes. -->

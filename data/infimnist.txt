@@ -1,0 +1,1 @@
+./infimnist svm 10000 8109999 | nl -w1 -v0 -s" " > mnist8m-libsvm-indexed.txt

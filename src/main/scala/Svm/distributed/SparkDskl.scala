@@ -19,8 +19,6 @@ object SparkDskl extends App {
   //learnXOR()
   learnMNIST()
 
-  val numHeldoutInstances = 100
-
   def learnMNIST() = {
 
     var id = 0
@@ -42,18 +40,25 @@ object SparkDskl extends App {
         }
       }.toSeq
 
+    //TODO for some weird reason, don't remove this line...
+    println(data.size)
+
     val numPartitions = 4
 
     val conf = new SparkConf()
     val sc = new SparkContext(s"local[${numPartitions}]", "DoublyStochasticKernelLearning", conf)
 
-    val instances = sc.parallelize(data, numPartitions)
+    try {
+      val instances = sc.parallelize(data, numPartitions)
 
-    val numInstances = id
+      val numInstances = id
 
-    val α = learn(instances = instances, seed = Random.nextInt(), N = numInstances, D = DistUtils.MNIST_NUM_FEATURES,
-      C = 0.5, numPartitions = numPartitions, partitionSize = 1000, numGradients = 100,
-      empiricalKernelMapWidth = 100, iterations = 150, testEvery = 30)
+      val α = learn(instances = instances, seed = Random.nextInt(), N = numInstances, D = DistUtils.MNIST_NUM_FEATURES,
+        C = 0.5, numPartitions = numPartitions, partitionSize = 1000, numGradients = 100,
+        empiricalKernelMapWidth = 100, iterations = 150, testEvery = 30)
+    } finally {
+      sc.stop()
+    }
   }
 
 
@@ -64,20 +69,23 @@ object SparkDskl extends App {
     
     val conf = new SparkConf()
     val sc = new SparkContext(s"local[${numPartitions}]", "DoublyStochasticKernelLearning", conf)
-    
-    
-    val xorData = Utils.shuffleData(Utils.generateXORData(N, 0.2))
 
-    val instances = sc.parallelize(
-      (0 until xorData.X.cols).map { i =>
-        Instance(i, xorData.Y(0, i).toInt, xorData.X(::, i).toDenseVector)
-      })
-    
-    val α = learn(instances = instances, seed = Random.nextInt(), N = N, D = 2, C = 0.003,
+    try {
+      val xorData = Utils.shuffleData(Utils.generateXORData(N, 0.2))
+
+      val instances = sc.parallelize(
+        (0 until xorData.X.cols).map { i =>
+          Instance(i, xorData.Y(0, i).toInt, xorData.X(::, i).toDenseVector)
+        })
+
+      val α = learn(instances = instances, seed = Random.nextInt(), N = N, D = 2, C = 0.003,
         numPartitions = numPartitions, partitionSize = 500, numGradients = 10, empiricalKernelMapWidth = 10,
         iterations = 20, testEvery = 3)
 
-    Plots.plotModel(xorData.X, xorData.Y, α, sigma = 1.0)
+      Plots.plotModel(xorData.X, xorData.Y, α, sigma = 1.0)
+    } finally {
+      sc.stop()
+    }
   }
   
   def learn(instances: RDD[Instance], seed: Int, N: Int, D: Int, C: Double, numPartitions: Int, partitionSize: Int, 
@@ -89,61 +97,57 @@ object SparkDskl extends App {
 
     val sc = instances.sparkContext
     
-    try {
-      val partitions = partitionsFromInstances(instances, N, D, numPartitions, seed, partitionSize)
-      partitions.cache()
-      partitions.count()
+    val partitions = partitionsFromInstances(instances, N, D, numPartitions, seed, partitionSize)
+    partitions.cache()
+    partitions.count()
 
-      val convergenceStats = sc.accumulator("")(DistUtils.StringAccumulator)
+    val convergenceStats = sc.accumulator("")(DistUtils.StringAccumulator)
 
-      for (iteration <- 1 to iterations) {
+    for (iteration <- 1 to iterations) {
 
-        /* broadcast dual coefficients */
-        val α_broadcast = sc.broadcast(α)
+      /* broadcast dual coefficients */
+      val α_broadcast = sc.broadcast(α)
 
-        val (g, deltaGk) = partitions
-          .map { partition =>
-  
-            /* slice out relevant part of coefficient vector */
-            val α_local = α_broadcast.value(partition.sampledIndices).toDenseVector
+      val (g, deltaGk) = partitions
+        .map { partition =>
 
-            /* compute training error on current partition */
-            if (iteration % testEvery == 0) {
-              convergenceStats.add(trainError(iteration, partition, α_local))
-            }
+          /* slice out relevant part of coefficient vector */
+          val α_local: Vector[Double] = α_broadcast.value(partition.sampledIndices)
 
-            val rnPred = DistUtils.sampleNoSeed(partition.Y.length, numGradients)
-            val rnexpand = DistUtils.sampleNoSeed(partition.Y.length, empiricalKernelMapWidth)
-
-            val gk_localAndGhat = gradientAndG(partition.Y(rnPred), partition.X(::, rnPred), partition.X(::, rnexpand),
-              α_local(rnexpand).asInstanceOf[Vector[Double]], C)
-
-            /* correctly translate sample partition indexes to global indexes */
-            val translation = rnexpand.map { expandIndex => partition.sampledIndices(expandIndex) }
-
-            val gk = DenseVector.zeros[Double](N)
-            gk(translation) := gk_localAndGhat._1
-
-            val deltaGk = DenseVector.zeros[Double](N)
-            deltaGk(translation) := gk_localAndGhat._2
-
-            (gk, deltaGk)
+          /* compute training error on current partition */
+          if (iteration % testEvery == 0) {
+            convergenceStats.add(trainError(iteration, partition, α_local))
           }
-          .treeReduce { case ((gk1, deltaGk1), (gk2, deltaGk2)) => (gk1 + gk2, deltaGk1 + deltaGk2) }
 
-        α -= invSqrtG(G) :* g
-        
-        G :+= deltaGk
-      }
+          val rnPred = DistUtils.sampleNoSeed(partition.Y.length, numGradients)
+          val rnexpand = DistUtils.sampleNoSeed(partition.Y.length, empiricalKernelMapWidth)
 
-      partitions.unpersist()
+          val gk_localAndGhat = gradientAndG(partition.Y(rnPred), partition.X(::, rnPred), partition.X(::, rnexpand),
+            α_local(rnexpand).asInstanceOf[Vector[Double]], C)
 
-      println("########################")
-      println(convergenceStats.value)
-      println("########################")
-    } finally {
-      sc.stop()
+          /* correctly translate sample partition indexes to global indexes */
+          val translation = rnexpand.map { expandIndex => partition.sampledIndices(expandIndex) }
+
+          val gk = SparseVector.zeros[Double](N)
+          gk(translation) := gk_localAndGhat._1
+
+          val deltaGk = SparseVector.zeros[Double](N)
+          deltaGk(translation) := gk_localAndGhat._2
+
+          (gk, deltaGk)
+        }
+        .treeReduce { case ((gk1, deltaGk1), (gk2, deltaGk2)) => (gk1 + gk2, deltaGk1 + deltaGk2) }
+
+      α -= invSqrtG(G) :* g
+
+      G :+= deltaGk
     }
+
+    partitions.unpersist()
+
+    println("########################")
+    println(convergenceStats.value)
+    println("########################")
 
     α
   }
@@ -240,10 +244,12 @@ object SparkDskl extends App {
     val sc = instances.sparkContext
 
     println("Generating partition assignments")
-    val assignments = (0 until numPartitions).map { partitionId =>
-      val sampledIndices = DistUtils.sampleIndicesForPartition(seed, partitionId, N, partitionSize)
-      partitionId -> sampledIndices.zipWithIndex.toMap
-    }
+    val assignments = (0 until numPartitions).par
+      .map { partitionId =>
+        val sampledIndices = DistUtils.sampleIndicesForPartition(seed, partitionId, N, partitionSize)
+        partitionId -> sampledIndices.zipWithIndex.toMap
+      }
+      .seq
 
     println("Generating data matrices for partitions from assignments")
     val assignmentsBc = sc.broadcast(assignments)

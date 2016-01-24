@@ -96,19 +96,21 @@ object Dskl {
 
 
   //def GaussianKernel(X1, X2, sigma):
+  //def gaussianKernel(X1: DenseMatrix[Double], X2: DenseMatrix[Double], sigma: Double): DenseMatrix[Double] = {
   def gaussianKernel(X1: DenseMatrix[Double], X2: DenseMatrix[Double], sigma: Double): DenseMatrix[Double] = {
 
     var i = 0
     var j = 0
 
     // K = cdist(X1.T, X2.T, 'euclidean')
-    //TODO use matrix mult here or at least save half
+    //TODO use matrix mult here
     val distances = DenseMatrix.zeros[Double](X1.cols, X2.cols)
     while (i < X1.cols) {
 
       while (j < X2.cols) {
         val subtracted = X1(::, i) - X2(::, j)
-        distances(i, j) = exp(pow(sqrt(subtracted.dot(subtracted)),2.0) / (-2.0 * sigma * sigma))
+        //distances(i, j) = exp(pow(sqrt(subtracted.dot(subtracted)),2.0) / (-2.0 * sigma * sigma))
+        distances(i, j) = exp(subtracted.dot(subtracted) / (-2.0 * sigma * sigma))
         j += 1
       }
       i += 1
