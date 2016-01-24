@@ -7,6 +7,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import Svm.{Plots, Utils, Dskl}
 
+import scala.io.Source
 import scala.util.Random
 
 case class Instance(id: Int, label: Int, features: DenseVector[Double])
@@ -15,7 +16,46 @@ case class Partition(id: Int, sampledIndices: IndexedSeq[Int], X: DenseMatrix[Do
 
 object SparkDskl extends App {
 
-  learnXOR()
+  //learnXOR()
+  learnMNIST()
+
+  val numHeldoutInstances = 100
+
+  def learnMNIST() = {
+
+    var id = 0
+
+    val labelA = 3
+    val labelB = 6
+
+    val data = Source.fromFile("/home/ssc/Entwicklung/datasets/infimnist/infimnist/mnist8m-libsvm-indexed-first10k.txt")
+      .getLines()
+      .flatMap { line =>
+        val instance = DistUtils.mnistInstanceFromString(line)
+        if (instance.label == labelA || instance.label == labelB) {
+          val newLabel = if (instance.label == labelA) { 1 } else { -1 }
+          val newInstance = Instance(id, newLabel, instance.features)
+          id += 1 //map with side effect, dirty...
+          Some(newInstance)
+        } else {
+          None
+        }
+      }.toSeq
+
+    val numPartitions = 4
+
+    val conf = new SparkConf()
+    val sc = new SparkContext(s"local[${numPartitions}]", "DoublyStochasticKernelLearning", conf)
+
+    val instances = sc.parallelize(data, numPartitions)
+
+    val numInstances = id
+
+    val α = learn(instances = instances, seed = Random.nextInt(), N = numInstances, D = DistUtils.MNIST_NUM_FEATURES,
+      C = 0.5, numPartitions = numPartitions, partitionSize = 1000, numGradients = 100,
+      empiricalKernelMapWidth = 100, iterations = 150, testEvery = 30)
+  }
+
 
   def learnXOR() = {
 
@@ -35,13 +75,13 @@ object SparkDskl extends App {
     
     val α = learn(instances = instances, seed = Random.nextInt(), N = N, D = 2, C = 0.003,
         numPartitions = numPartitions, partitionSize = 500, numGradients = 10, empiricalKernelMapWidth = 10,
-        iterations = 20)
+        iterations = 20, testEvery = 3)
 
     Plots.plotModel(xorData.X, xorData.Y, α, sigma = 1.0)
   }
   
   def learn(instances: RDD[Instance], seed: Int, N: Int, D: Int, C: Double, numPartitions: Int, partitionSize: Int, 
-      numGradients: Int, empiricalKernelMapWidth: Int, iterations: Int): DenseVector[Double] = {
+      numGradients: Int, empiricalKernelMapWidth: Int, iterations: Int, testEvery: Int): DenseVector[Double] = {
 
     /* initialize coefficient vector */
     var α = DenseVector.rand(N, Rand.gaussian)
@@ -66,30 +106,18 @@ object SparkDskl extends App {
   
             /* slice out relevant part of coefficient vector */
             val α_local = α_broadcast.value(partition.sampledIndices).toDenseVector
-  
+
+            /* compute training error on current partition */
+            if (iteration % testEvery == 0) {
+              convergenceStats.add(trainError(iteration, partition, α_local))
+            }
+
             val rnPred = DistUtils.sampleNoSeed(partition.Y.length, numGradients)
             val rnexpand = DistUtils.sampleNoSeed(partition.Y.length, empiricalKernelMapWidth)
 
             val gk_localAndGhat = gradientAndG(partition.Y(rnPred), partition.X(::, rnPred), partition.X(::, rnexpand),
               α_local(rnexpand).asInstanceOf[Vector[Double]], C)
 
-           //val gk_local = Dskl.gradient(partition.Y(rnPred), partition.X(::, rnPred), partition.X(::, rnexpand),
-           //  α_local(rnexpand).asInstanceOf[Vector[Double]], C)
-           //assert(norm((gk_local - gk_localAndGhat._1), 2) < 0.0001)
-
-            /* compute training error on current partition */
-            if (iteration % 3 == 0) {
-              val predictions = predictSvmEmp(partition.X, partition.X, α_local)
-              var incorrect = 0
-              for (n <- 0 until predictions.length) {
-                if ((partition.Y(n) * predictions(n)) < 0) {
-                  incorrect += 1
-                }
-              }
-              convergenceStats.add(s"iteration ${iteration}, partition ${partition.id}," +
-                s"# incorrectly classified ${incorrect} / ${partitionSize} (on training data)")
-            }
-  
             /* correctly translate sample partition indexes to global indexes */
             val translation = rnexpand.map { expandIndex => partition.sampledIndices(expandIndex) }
 
@@ -103,7 +131,6 @@ object SparkDskl extends App {
           }
           .treeReduce { case ((gk1, deltaGk1), (gk2, deltaGk2)) => (gk1 + gk2, deltaGk1 + deltaGk2) }
 
-        //α -= (1.0 / iteration) * g
         α -= invSqrtG(G) :* g
         
         G :+= deltaGk
@@ -119,6 +146,32 @@ object SparkDskl extends App {
     }
 
     α
+  }
+
+  def trainError(iteration: Int, partition: Partition, α_local: Vector[Double]): String = {
+    /* compute training error on current partition */
+    val testStart = System.currentTimeMillis()
+    val rnTestPred = DistUtils.sampleNoSeed(partition.Y.length, 100)
+    val rnTestExpand = DistUtils.sampleNoSeed(partition.Y.length, 1000)
+    val predictions = predictSvmEmp(partition.X(::, rnTestPred).toDenseMatrix,
+      partition.X(::, rnTestExpand).toDenseMatrix, α_local(rnTestExpand).asInstanceOf[Vector[Double]])
+
+    var incorrectA = 0
+    var incorrectB = 0
+    val correctLabels = partition.Y(rnTestPred)
+    for (n <- 0 until predictions.length) {
+      if ((correctLabels(n) * predictions(n)) < 0) {
+        if (correctLabels(n) == 1) {
+          incorrectA += 1
+        } else {
+          incorrectB += 1
+        }
+      }
+    }
+    val testDurationInMs = System.currentTimeMillis() - testStart
+    s"iteration ${iteration}, partition ${partition.id}, " +
+      s"# incorrectly classified ${incorrectA + incorrectB} / ${predictions.length} [${incorrectA} / ${incorrectB}] " +
+      s"(on training data, took ${testDurationInMs}} ms)"
   }
 
   def invSqrtG(G: DenseVector[Double]): Vector[Double] = {
@@ -177,7 +230,7 @@ object SparkDskl extends App {
     (gk(0, ::).t, Ghatk(0, ::).t)
   }
 
-  def predictSvmEmp(Xexpand: DenseMatrix[Double], Xtarget: DenseMatrix[Double], α: DenseVector[Double]) = {
+  def predictSvmEmp(Xexpand: DenseMatrix[Double], Xtarget: DenseMatrix[Double], α: Vector[Double]): Vector[Double] = {
     Dskl.gaussianKernel(Xexpand, Xtarget, sigma = 1.0) * α
   }
 
