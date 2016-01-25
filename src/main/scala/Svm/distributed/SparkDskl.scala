@@ -17,44 +17,36 @@ case class Partition(id: Int, sampledIndices: IndexedSeq[Int], X: DenseMatrix[Do
 object SparkDskl extends App {
 
   //learnXOR()
-  learnMNIST()
+  learnMNISToneVersusAll()
 
-  def learnMNIST() = {
-
-    var id = 0
+  def learnMNISToneVersusAll() = {
 
     val labelA = 3
-    val labelB = 6
 
     val data = Source.fromFile("/home/ssc/Entwicklung/datasets/infimnist/infimnist/mnist8m-libsvm-indexed-first10k.txt")
       .getLines()
-      .flatMap { line =>
+      .map { line =>
         val instance = DistUtils.mnistInstanceFromString(line)
-        if (instance.label == labelA || instance.label == labelB) {
-          val newLabel = if (instance.label == labelA) { 1 } else { -1 }
-          val newInstance = Instance(id, newLabel, instance.features)
-          id += 1 //map with side effect, dirty...
-          Some(newInstance)
-        } else {
-          None
-        }
+        val newLabel = if (instance.label == labelA) { 1 } else { -1 }
+        Instance(instance.id, newLabel, instance.features)
       }.toSeq
 
     //TODO for some weird reason, don't remove this line...
     println(data.size)
 
-    val numPartitions = 4
+    val numPartitions = 10
 
     val conf = new SparkConf()
+    DsklKryo.addKryoSettings(conf)
     val sc = new SparkContext(s"local[${numPartitions}]", "DoublyStochasticKernelLearning", conf)
 
     try {
       val instances = sc.parallelize(data, numPartitions)
 
-      val numInstances = id
+      val numInstances = data.size
 
       val α = learn(instances = instances, seed = Random.nextInt(), N = numInstances, D = DistUtils.MNIST_NUM_FEATURES,
-        C = 0.5, numPartitions = numPartitions, partitionSize = 1000, numGradients = 100,
+        C = 1.0, numPartitions = numPartitions, partitionSize = 5000, numGradients = 100,
         empiricalKernelMapWidth = 100, iterations = 150, testEvery = 30)
     } finally {
       sc.stop()
@@ -87,7 +79,7 @@ object SparkDskl extends App {
       sc.stop()
     }
   }
-  
+
   def learn(instances: RDD[Instance], seed: Int, N: Int, D: Int, C: Double, numPartitions: Int, partitionSize: Int, 
       numGradients: Int, empiricalKernelMapWidth: Int, iterations: Int, testEvery: Int): DenseVector[Double] = {
 
