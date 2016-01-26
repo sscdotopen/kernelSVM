@@ -43,12 +43,27 @@ object DistUtils {
   }
 
   def sampleNoSeed(maxIndex: Int, howMany: Int) = {
-    new Random().shuffle(Array.range(0, maxIndex).toIndexedSeq).take(howMany)
+    fisherYates(new Random(), maxIndex).take(howMany).toIndexedSeq
+  }
+
+  def fisherYates(random: Random, maxIndex: Int): Array[Int] = {
+
+    val indexes = Array.range(0, maxIndex)
+    var n = 0
+    while (n < indexes.length) {
+      val randomIdx = n + random.nextInt(indexes.length - n)
+      val tmp = indexes(randomIdx)
+      indexes.update(randomIdx, indexes(n))
+      indexes(n) = tmp
+      n += 1
+    }
+
+    indexes
   }
 
   def sample(seed: Int, key: String, maxIndex: Int, howMany: Int) = {
     val prng = new Random(MurmurHash3.stringHash(key.toString, seed))
-    prng.shuffle(Array.range(0, maxIndex).toIndexedSeq).take(howMany)
+    fisherYates(prng, maxIndex).take(howMany)
   }
 
   def sampleIndicesForPartition(seed: Int, partitionId: Int, maxIndex: Int, howMany: Int) = {

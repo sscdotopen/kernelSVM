@@ -11,7 +11,7 @@ object Dskl {
 
   // def fit_svm_dskl_emp(X,Y,Xtest,Ytest,its=100,eta=1.,C=.1,nPredSamples=10,nExpandSamples=10, kernel=(GaussianKernel,(1.))):
   def fitSvmDsklEmp(X: DenseMatrix[Double], Y: DenseVector[Double], Xtest: DenseMatrix[Double],
-    Ytest: DenseVector[Double], its: Int = 200, eta: Double = 1.0, C: Double = 0.1, nPredSamples: Int = 10,
+    Ytest: DenseVector[Double], its: Int = 2000, eta: Double = 1.0, C: Double = 0.1, nPredSamples: Int = 10,
     nExpandSamples: Int = 10) = {
 
     // Wemp = sp.randn(len(Y))
@@ -46,7 +46,7 @@ object Dskl {
   //def predict_svm_emp(Xexpand,Xtarget,w,kernel):
   def predictSvmEmp(Xexpand: DenseMatrix[Double], Xtarget: DenseMatrix[Double], w: DenseVector[Double]) = {
     //return w.dot(kernel[0](Xexpand,Xtarget,kernel[1]))
-    gaussianKernel(Xexpand, Xtarget, sigma = 1.0) * w
+    gaussianKernel(Xexpand, Xtarget, sigma = 1.0).t * w
   }
 
   // def step_dskl_empirical(X,Y,W,eta=1.,C=.1,kernel=(GaussianKernel,(1.)),nPredSamples=10,nExpandSamples=10):
@@ -109,7 +109,6 @@ object Dskl {
 
       while (j < X2.cols) {
         val subtracted = X1(::, i) - X2(::, j)
-        //distances(i, j) = exp(pow(sqrt(subtracted.dot(subtracted)),2.0) / (-2.0 * sigma * sigma))
         distances(i, j) = exp(subtracted.dot(subtracted) / (-2.0 * sigma * sigma))
         j += 1
       }

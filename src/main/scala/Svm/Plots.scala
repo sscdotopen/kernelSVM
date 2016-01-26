@@ -23,12 +23,31 @@ object Plots {
     val predictionPlot = f.subplot(0)
     predictionPlot += plot(class0Predictions(::, 0), class0Predictions(::, 1), '.')
     predictionPlot += plot(class1Prediction(::, 0), class1Prediction(::, 1), '.')
-    predictionPlot.title = "Prediction"
+    predictionPlot.title = s"Prediction (Train ${X.cols})"
 
     val groundTruthPlot = f.subplot(2, 1, 1)
     groundTruthPlot += plot(class0_gt(::, 0), class0_gt(::, 1), '.')
     groundTruthPlot += plot(class1_gt(::, 0), class1_gt(::, 1), '.')
-    groundTruthPlot.title = "Groundtruth"
+    groundTruthPlot.title = s"Groundtruth (Train ${X.cols})"
   }
 
+  def plotModel2(X: DenseMatrix[Double], Xt: DenseMatrix[Double], Y: DenseMatrix[Double], W: DenseVector[Double], sigma: Double): Unit ={
+
+    val class0Predictions = concat(X, { i => KernelSVM.predictSVMKernel(X(::, i), Xt, W, sigma) <= 0 })
+    val class1Prediction = concat(X, { i => KernelSVM.predictSVMKernel(X(::, i), Xt, W, sigma) > 0 })
+    val class0_gt = concat(X, { i => Y(0, i) <= 0 })
+    val class1_gt = concat(X, { i => Y(0, i) > 0 })
+
+    val f = Figure()
+
+    val predictionPlot = f.subplot(0)
+    predictionPlot += plot(class0Predictions(::, 0), class0Predictions(::, 1), '.')
+    predictionPlot += plot(class1Prediction(::, 0), class1Prediction(::, 1), '.')
+    predictionPlot.title = s"Prediction (Holdout - ${X.cols})"
+
+    val groundTruthPlot = f.subplot(2, 1, 1)
+    groundTruthPlot += plot(class0_gt(::, 0), class0_gt(::, 1), '.')
+    groundTruthPlot += plot(class1_gt(::, 0), class1_gt(::, 1), '.')
+    groundTruthPlot.title = s"Groundtruth (Holdout -  ${X.cols})"
+  }
 }

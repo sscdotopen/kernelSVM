@@ -16,8 +16,8 @@ case class Partition(id: Int, sampledIndices: IndexedSeq[Int], X: DenseMatrix[Do
 
 object SparkDskl extends App {
 
-  //learnXOR()
-  learnMNISToneVersusAll()
+  learnXOR()
+  //learnMNISToneVersusAll()
 
   def learnMNISToneVersusAll() = {
 
@@ -45,9 +45,9 @@ object SparkDskl extends App {
 
       val numInstances = data.size
 
-      val α = learn(instances = instances, seed = Random.nextInt(), N = numInstances, D = DistUtils.MNIST_NUM_FEATURES,
-        C = 1.0, numPartitions = numPartitions, partitionSize = 5000, numGradients = 100,
-        empiricalKernelMapWidth = 100, iterations = 150, testEvery = 30)
+      val α = learn(instances = instances, seed = Random.nextInt(), NBefore = numInstances, D = DistUtils.MNIST_NUM_FEATURES,
+        C = 0.00001, numPartitions = numPartitions, partitionSize = 5000, numGradients = 100,
+        empiricalKernelMapWidth = 1, iterations = 10, testEvery = 5, numHeldoutInstances = 0)
     } finally {
       sc.stop()
     }
@@ -57,43 +57,49 @@ object SparkDskl extends App {
   def learnXOR() = {
 
     val N = 2000
-    val numPartitions = 10
+    val numPartitions = 5
     
     val conf = new SparkConf()
     val sc = new SparkContext(s"local[${numPartitions}]", "DoublyStochasticKernelLearning", conf)
 
     try {
       val xorData = Utils.shuffleData(Utils.generateXORData(N, 0.2))
+      val numHeldoutInstances = 200
 
       val instances = sc.parallelize(
         (0 until xorData.X.cols).map { i =>
           Instance(i, xorData.Y(0, i).toInt, xorData.X(::, i).toDenseVector)
         })
 
-      val α = learn(instances = instances, seed = Random.nextInt(), N = N, D = 2, C = 0.003,
-        numPartitions = numPartitions, partitionSize = 500, numGradients = 10, empiricalKernelMapWidth = 10,
-        iterations = 20, testEvery = 3)
+      val α = learn(instances = instances, seed = Random.nextInt(), NBefore = N, D = 2, C = 0.00001,
+        numPartitions = numPartitions, partitionSize = 500, numGradients = 10, empiricalKernelMapWidth = 1,
+        iterations = 100, testEvery = 25, numHeldoutInstances = numHeldoutInstances)
 
-      Plots.plotModel(xorData.X, xorData.Y, α, sigma = 1.0)
+      Plots.plotModel(xorData.X(::, 0 until (N - numHeldoutInstances)), xorData.Y(::, 0 until (N - numHeldoutInstances)), α, sigma = 1.0)
+      Plots.plotModel2(xorData.X(::, (N - numHeldoutInstances) until N), xorData.X(::, 0 until (N - numHeldoutInstances)), xorData.Y(::, (N - numHeldoutInstances) until N), α, sigma = 1.0)
     } finally {
       sc.stop()
     }
   }
 
-  def learn(instances: RDD[Instance], seed: Int, N: Int, D: Int, C: Double, numPartitions: Int, partitionSize: Int, 
-      numGradients: Int, empiricalKernelMapWidth: Int, iterations: Int, testEvery: Int): DenseVector[Double] = {
+  def learn(instances: RDD[Instance], seed: Int, NBefore: Int, D: Int, C: Double, numPartitions: Int, partitionSize: Int,
+      numGradients: Int, empiricalKernelMapWidth: Int, iterations: Int, testEvery: Int, numHeldoutInstances: Int): DenseVector[Double] = {
+
+    val N = NBefore - numHeldoutInstances
 
     /* initialize coefficient vector */
     var α = DenseVector.rand(N, Rand.gaussian)
     val G = DenseVector.ones[Double](N)
 
     val sc = instances.sparkContext
-    
-    val partitions = partitionsFromInstances(instances, N, D, numPartitions, seed, partitionSize)
+
+    val trainInstances = instances.filter { _.id < N }
+    trainInstances.cache()
+
+    val partitions = partitionsFromInstances(trainInstances, N, D, numPartitions, seed, partitionSize)
     partitions.cache()
     partitions.count()
 
-    val convergenceStats = sc.accumulator("")(DistUtils.StringAccumulator)
 
     for (iteration <- 1 to iterations) {
 
@@ -105,11 +111,6 @@ object SparkDskl extends App {
 
           /* slice out relevant part of coefficient vector */
           val α_local: Vector[Double] = α_broadcast.value(partition.sampledIndices)
-
-          /* compute training error on current partition */
-          if (iteration % testEvery == 0) {
-            convergenceStats.add(trainError(iteration, partition, α_local))
-          }
 
           val rnPred = DistUtils.sampleNoSeed(partition.Y.length, numGradients)
           val rnexpand = DistUtils.sampleNoSeed(partition.Y.length, empiricalKernelMapWidth)
@@ -132,43 +133,19 @@ object SparkDskl extends App {
 
       α -= invSqrtG(G) :* g
 
+
+      //α -= g * (1.0 / iteration)
+
       G :+= deltaGk
     }
 
     partitions.unpersist()
 
-    println("########################")
-    println(convergenceStats.value)
-    println("########################")
 
     α
   }
 
-  def trainError(iteration: Int, partition: Partition, α_local: Vector[Double]): String = {
-    /* compute training error on current partition */
-    val testStart = System.currentTimeMillis()
-    val rnTestPred = DistUtils.sampleNoSeed(partition.Y.length, 100)
-    val rnTestExpand = DistUtils.sampleNoSeed(partition.Y.length, 1000)
-    val predictions = predictSvmEmp(partition.X(::, rnTestPred).toDenseMatrix,
-      partition.X(::, rnTestExpand).toDenseMatrix, α_local(rnTestExpand).asInstanceOf[Vector[Double]])
 
-    var incorrectA = 0
-    var incorrectB = 0
-    val correctLabels = partition.Y(rnTestPred)
-    for (n <- 0 until predictions.length) {
-      if ((correctLabels(n) * predictions(n)) < 0) {
-        if (correctLabels(n) == 1) {
-          incorrectA += 1
-        } else {
-          incorrectB += 1
-        }
-      }
-    }
-    val testDurationInMs = System.currentTimeMillis() - testStart
-    s"iteration ${iteration}, partition ${partition.id}, " +
-      s"# incorrectly classified ${incorrectA + incorrectB} / ${predictions.length} [${incorrectA} / ${incorrectB}] " +
-      s"(on training data, took ${testDurationInMs}} ms)"
-  }
 
   def invSqrtG(G: DenseVector[Double]): Vector[Double] = {
     val invSqrtG = DenseVector.zeros[Double](G.length)
@@ -226,16 +203,11 @@ object SparkDskl extends App {
     (gk(0, ::).t, Ghatk(0, ::).t)
   }
 
-  def predictSvmEmp(Xexpand: DenseMatrix[Double], Xtarget: DenseMatrix[Double], α: Vector[Double]): Vector[Double] = {
-    Dskl.gaussianKernel(Xexpand, Xtarget, sigma = 1.0) * α
-  }
-
   def partitionsFromInstances(instances: RDD[Instance], N: Int, D: Int, numPartitions: Int, seed: Int,
       partitionSize: Int) = {
 
     val sc = instances.sparkContext
 
-    println("Generating partition assignments")
     val assignments = (0 until numPartitions).par
       .map { partitionId =>
         val sampledIndices = DistUtils.sampleIndicesForPartition(seed, partitionId, N, partitionSize)
