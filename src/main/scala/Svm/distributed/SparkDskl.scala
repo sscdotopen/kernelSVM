@@ -34,7 +34,7 @@ object SparkDskl extends App {
     //TODO for some weird reason, don't remove this line...
     println(data.size)
 
-    val numPartitions = 10
+    val numPartitions = 1
 
     val conf = new SparkConf()
     DsklKryo.addKryoSettings(conf)
@@ -46,7 +46,7 @@ object SparkDskl extends App {
       val numInstances = data.size
 
       val α = learn(instances = instances, seed = Random.nextInt(), NBefore = numInstances, D = DistUtils.MNIST_NUM_FEATURES,
-        C = 0.00001, numPartitions = numPartitions, partitionSize = 5000, numGradients = 100,
+        C = 0.00001, numPartitions = numPartitions, partitionSize = 5000, numPointsforEvaluation = 100,
         empiricalKernelMapWidth = 1, iterations = 10, testEvery = 5, numHeldoutInstances = 0)
     } finally {
       sc.stop()
@@ -72,7 +72,7 @@ object SparkDskl extends App {
         })
 
       val α = learn(instances = instances, seed = Random.nextInt(), NBefore = N, D = 2, C = 0.00001,
-        numPartitions = numPartitions, partitionSize = 500, numGradients = 10, empiricalKernelMapWidth = 1,
+        numPartitions = numPartitions, partitionSize = 1000, numPointsforEvaluation = 100, empiricalKernelMapWidth = 100,
         iterations = 100, testEvery = 25, numHeldoutInstances = numHeldoutInstances)
 
       Plots.plotModel(xorData.X(::, 0 until (N - numHeldoutInstances)), xorData.Y(::, 0 until (N - numHeldoutInstances)), α, sigma = 1.0)
@@ -83,7 +83,7 @@ object SparkDskl extends App {
   }
 
   def learn(instances: RDD[Instance], seed: Int, NBefore: Int, D: Int, C: Double, numPartitions: Int, partitionSize: Int,
-      numGradients: Int, empiricalKernelMapWidth: Int, iterations: Int, testEvery: Int, numHeldoutInstances: Int): DenseVector[Double] = {
+      numPointsforEvaluation: Int, empiricalKernelMapWidth: Int, iterations: Int, testEvery: Int, numHeldoutInstances: Int): DenseVector[Double] = {
 
     val N = NBefore - numHeldoutInstances
 
@@ -94,32 +94,41 @@ object SparkDskl extends App {
     val sc = instances.sparkContext
 
     val trainInstances = instances.filter { _.id < N }
-    trainInstances.cache()
 
     val partitions = partitionsFromInstances(trainInstances, N, D, numPartitions, seed, partitionSize)
     partitions.cache()
     partitions.count()
 
+    var misclassifications = ""
 
     for (iteration <- 1 to iterations) {
 
       /* broadcast dual coefficients */
       val α_broadcast = sc.broadcast(α)
 
-      val (g, deltaGk) = partitions
+      val (g, deltaGk, sumOfRatios) = partitions
         .map { partition =>
 
           /* slice out relevant part of coefficient vector */
           val α_local: Vector[Double] = α_broadcast.value(partition.sampledIndices)
 
-          val rnPred = DistUtils.sampleNoSeed(partition.Y.length, numGradients)
+//          assert(α_local.length == partitionSize)
+
+          val rnPred = DistUtils.sampleNoSeed(partition.Y.length, numPointsforEvaluation)
           val rnexpand = DistUtils.sampleNoSeed(partition.Y.length, empiricalKernelMapWidth)
 
+//          assert(α_local(rnexpand).length == empiricalKernelMapWidth)
+
           val gk_localAndGhat = gradientAndG(partition.Y(rnPred), partition.X(::, rnPred), partition.X(::, rnexpand),
-            α_local(rnexpand).asInstanceOf[Vector[Double]], C)
+            α_local(rnexpand).asInstanceOf[Vector[Double]], C, numPointsforEvaluation, empiricalKernelMapWidth)
 
           /* correctly translate sample partition indexes to global indexes */
           val translation = rnexpand.map { expandIndex => partition.sampledIndices(expandIndex) }
+
+//          assert(gk_localAndGhat._1.length == empiricalKernelMapWidth)
+//          assert(gk_localAndGhat._2.length == empiricalKernelMapWidth)
+//          assert(translation.length == gk_localAndGhat._1.length)
+//          assert(translation.length == gk_localAndGhat._2.length)
 
           val gk = SparseVector.zeros[Double](N)
           gk(translation) := gk_localAndGhat._1
@@ -127,20 +136,21 @@ object SparkDskl extends App {
           val deltaGk = SparseVector.zeros[Double](N)
           deltaGk(translation) := gk_localAndGhat._2
 
-          (gk, deltaGk)
+          (gk, deltaGk, gk_localAndGhat._3)
         }
-        .treeReduce { case ((gk1, deltaGk1), (gk2, deltaGk2)) => (gk1 + gk2, deltaGk1 + deltaGk2) }
+        .treeReduce { case ((gk1, deltaGk1, ratio1), (gk2, deltaGk2, ratio2)) => (gk1 + gk2, deltaGk1 + deltaGk2, ratio1 + ratio2) }
 
       α -= invSqrtG(G) :* g
 
-
       //α -= g * (1.0 / iteration)
+      misclassifications += s"Iteration ${iteration}, misclassification rate: ${sumOfRatios / numPartitions}\n"
 
       G :+= deltaGk
     }
 
     partitions.unpersist()
 
+    println(misclassifications)
 
     α
   }
@@ -159,13 +169,18 @@ object SparkDskl extends App {
 
   // def compute_gradient(y,Xpred,Xexpand,w,kernel,C):
   def gradientAndG(y: Vector[Double], Xpred: Matrix[Double], Xexpand: Matrix[Double], w: Vector[Double],
-               C: Double): (Vector[Double], Vector[Double]) = {
+               C: Double, numPointsforEvaluation: Int, empiricalKernelMapWidth: Int): (Vector[Double], Vector[Double], Double) = {
 
     //K = kernel[0](Xpred,Xexpand,kernel[1])
     val K = Dskl.gaussianKernel(Xpred.toDenseMatrix, Xexpand.toDenseMatrix, sigma = 1.0)
 
+    assert(K.rows == numPointsforEvaluation)
+    assert(K.cols == empiricalKernelMapWidth)
+
     //yhat = K.dot(w)
     val yhat: Vector[Double] = K * w
+
+//    assert(yhat.length == numPointsforEvaluation)
 
     //# compute whether or not prediction is in margin
     //inmargin = (yhat * y) <= 1
@@ -178,6 +193,16 @@ object SparkDskl extends App {
       }
       i += 1
     }
+
+    var numIncorrect = 0
+    var l = 0
+    while (l < yHatTimesY.length) {
+      if (yHatTimesY(l) < 0) {
+        numIncorrect += 1
+      }
+      l += 1
+    }
+    val misclassifiedRatio = numIncorrect.toDouble / y.length
 
     //G = C * w - (y * inmargin).dot(K)
 
@@ -197,10 +222,14 @@ object SparkDskl extends App {
     //val gk = Cw - rowSumOfK(0, ::).t
     val gk = sum(K(::, *))
 
+//    assert(gk.cols == empiricalKernelMapWidth)
+
     val K2 = K :* K
     val Ghatk = sum(K2(::, *))
 
-    (gk(0, ::).t, Ghatk(0, ::).t)
+//    assert(Ghatk.cols == empiricalKernelMapWidth)
+
+    (gk(0, ::).t, Ghatk(0, ::).t, misclassifiedRatio)
   }
 
   def partitionsFromInstances(instances: RDD[Instance], N: Int, D: Int, numPartitions: Int, seed: Int,
